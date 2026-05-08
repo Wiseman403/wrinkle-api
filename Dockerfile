@@ -52,20 +52,34 @@ FROM python:3.11-slim-bookworm AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    # matplotlib gets imported transitively by mediapipe / scikit-image
+    # and tries to write its config cache under $HOME/.config/matplotlib.
+    # Our non-root `app` user can't write to /app (created by WORKDIR
+    # while still owned by root), so it would fall back to a fresh
+    # tmpdir on every startup and emit a warning. Pointing MPLCONFIGDIR
+    # at /tmp explicitly silences the warning and makes the cache
+    # reusable across imports within one container lifetime.
+    MPLCONFIGDIR=/tmp/matplotlib_cache
 
-# Runtime system libs needed by the Python wheels:
-#   libglib2.0-0  : pulled in by opencv and mediapipe
-#   libgomp1      : OpenMP runtime, used by scikit-image / numpy / opencv
-#   libgl1        : OpenGL runtime — required because mediapipe declares a
-#                   hard dep on `opencv-contrib-python` (the *non*-headless
-#                   variant), which gets pulled in alongside our explicit
-#                   `opencv-python-headless`. The contrib build's `cv2.so`
-#                   links to libGL even when no GUI is used. Without this
-#                   the container fails at import time with
-#                   "ImportError: libGL.so.1: cannot open shared object file".
-#   libsm6, libxext6 : commonly required by opencv's GUI build alongside
-#                   libgl1; cheap to include for compatibility.
+# Runtime system libs needed by the Python wheels.
+#
+# Why each one is here:
+#   libglib2.0-0  pulled in by opencv and mediapipe
+#   libgomp1      OpenMP runtime, used by scikit-image / numpy / opencv
+#   libgl1        mediapipe declares a hard dep on `opencv-contrib-python`
+#                 (the *non*-headless variant), which gets pulled in
+#                 alongside our explicit `opencv-python-headless`. The
+#                 contrib build's `cv2.so` links libGL even when no GUI
+#                 is used.
+#   libsm6, libxext6 commonly required by opencv's GUI build alongside libgl1.
+#   libegl1       mediapipe >= 0.10.20 splits its native library into a
+#                 separately-loaded c-bindings .so that links libEGL even
+#                 when running CPU-only with no GPU.
+#   libgles2      same — the c-bindings .so also links libGLESv2.
+#                 Without these two, FaceLandmarker.create_from_options()
+#                 raises "OSError: libGLESv2.so.2: cannot open shared
+#                 object file" at lifespan startup.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libglib2.0-0 \
@@ -73,6 +87,8 @@ RUN apt-get update \
         libgl1 \
         libsm6 \
         libxext6 \
+        libegl1 \
+        libgles2 \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user. UID 10001 is conventional for "service accounts" and stays
