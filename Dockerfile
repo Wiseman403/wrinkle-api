@@ -54,12 +54,25 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# opencv-python-headless avoids most system libs, but mediapipe and a few
-# scikit-image components still need libglib2.0 and libgomp at runtime.
+# Runtime system libs needed by the Python wheels:
+#   libglib2.0-0  : pulled in by opencv and mediapipe
+#   libgomp1      : OpenMP runtime, used by scikit-image / numpy / opencv
+#   libgl1        : OpenGL runtime — required because mediapipe declares a
+#                   hard dep on `opencv-contrib-python` (the *non*-headless
+#                   variant), which gets pulled in alongside our explicit
+#                   `opencv-python-headless`. The contrib build's `cv2.so`
+#                   links to libGL even when no GUI is used. Without this
+#                   the container fails at import time with
+#                   "ImportError: libGL.so.1: cannot open shared object file".
+#   libsm6, libxext6 : commonly required by opencv's GUI build alongside
+#                   libgl1; cheap to include for compatibility.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libglib2.0-0 \
         libgomp1 \
+        libgl1 \
+        libsm6 \
+        libxext6 \
  && rm -rf /var/lib/apt/lists/*
 
 # Non-root user. UID 10001 is conventional for "service accounts" and stays
