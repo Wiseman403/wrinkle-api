@@ -1,0 +1,48 @@
+# Anything not needed at runtime — keeps the build context small and
+# the resulting image free of dev-only artifacts.
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+.venv/
+venv/
+env/
+ENV/
+
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+build/
+dist/
+*.egg-info/
+
+.env
+.env.*
+
+# Tests aren't shipped
+tests/
+
+# The local model bundle (3.8 MB) is re-downloaded inside the builder
+# stage; shipping it into the build context just inflates the upload to
+# the build daemon (or to App Platform / cloud build) for no benefit.
+models/
+
+# Git metadata
+.git/
+.gitignore
+
+# Local results / docs that shouldn't go into the image
+*.log
+*.md
+!README.md
