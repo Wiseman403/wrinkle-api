@@ -1,0 +1,88 @@
+# DigitalOcean App Platform spec for wrinkle-api.
+#
+# Deploy with either:
+#   - the web UI (Apps → Create App → GitHub → pick repo; DO auto-imports
+#     this file from .do/app.yaml), or
+#   - the CLI: `doctl apps create --spec .do/app.yaml`
+#
+# Auto-redeploys on push to `main` because deploy_on_push is true.
+
+name: wrinkle-api
+
+# Pick a region close to your users. Options:
+#   ams (Amsterdam), fra (Frankfurt), lon (London),
+#   nyc (New York), sfo (San Francisco), tor (Toronto),
+#   blr (Bangalore), sgp (Singapore), syd (Sydney).
+# Frankfurt is the closest EU region for Tunisia / North Africa.
+region: fra
+
+services:
+  - name: api
+    # Build via the repo's Dockerfile (no buildpack autodetection).
+    dockerfile_path: Dockerfile
+    source_dir: /
+
+    # *** REPLACE THIS with your GitHub username and repo name BEFORE deploying. ***
+    # Leaving the placeholder will fail the spec validation, which is
+    # intentional — it forces you to set this consciously.
+    github:
+      repo: Wiseman403/wrinkle-api
+      branch: main
+      deploy_on_push: true
+
+    # The container binds to ${PORT}, which App Platform injects. The
+    # http_port below is the port the platform routes traffic to inside
+    # the container; both match.
+    http_port: 8000
+
+    # Professional XS = 1 GB RAM / 1 dedicated vCPU / $12 per month.
+    # Why dedicated and not Basic XS (shared CPU): the Frangi filter is
+    # CPU-bound (~1-4 s per request); shared-CPU instances would have
+    # variable latency. 1 GB is comfortable for mediapipe + opencv
+    # (resident set ~600 MB).
+    instance_size_slug: professional-xs
+    instance_count: 1
+
+    # The lifespan checks for face_landmarker.task on disk and instantiates
+    # the FaceLandmarker. The Dockerfile already pre-downloaded the model
+    # at build time, so cold start is just MediaPipe init (~3-5 s on a
+    # dedicated vCPU). 60 s `initial_delay_seconds` gives generous headroom
+    # so the platform doesn't kill the container during startup.
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 60
+      period_seconds: 30
+      timeout_seconds: 5
+      success_threshold: 1
+      failure_threshold: 3
+
+    # All settings are optional — defaults in app/config.py are sane for
+    # production. Override here if you need to.
+    #
+    # IMPORTANT: the env-var prefix is `WRINKLE_`, not `LOG_LEVEL` etc.
+    # The pydantic-settings prefix is enforced in app/config.py.
+    envs:
+      - key: WRINKLE_LOG_LEVEL
+        scope: RUN_TIME
+        value: INFO
+
+      # Keep SSRF blocking ON in production. App Platform exposes
+      # platform-internal services on private IPs (e.g., the metadata
+      # service on 169.254.169.254). With this False, a malicious
+      # `image_url` could probe them. The default in config.py is True;
+      # this is just being explicit.
+      - key: WRINKLE_BLOCK_PRIVATE_IPS
+        scope: RUN_TIME
+        value: "true"
+
+      # Optional: bump if you expect users to send larger images.
+      # Default is 15 MB (15728640).
+      # - key: WRINKLE_MAX_IMAGE_BYTES
+      #   scope: RUN_TIME
+      #   value: "20971520"
+
+      # Optional: download timeout for the user-supplied image fetch.
+      # Default is 10 seconds.
+      # - key: WRINKLE_DOWNLOAD_TIMEOUT_S
+      #   scope: RUN_TIME
+      #   value: "10"
